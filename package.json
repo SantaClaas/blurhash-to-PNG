@@ -13,6 +13,7 @@
     "vite": "^4.2.0"
   },
   "dependencies": {
-    "blurhash": "^2.0.5"
+    "blurhash": "^2.0.5",
+    "fast-png": "^6.1.0"
   }
 }

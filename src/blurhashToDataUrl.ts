@@ -29,20 +29,17 @@ function parsePixels(pixels: Uint8ClampedArray, width: number, height: number) {
     .map((byte) => String.fromCharCode(byte))
     .join("");
   const pngString = generatePng(width, height, pixelsString);
-  const dataURL =
-    typeof Buffer !== "undefined"
-      ? Buffer.from(getPngArray(pngString)).toString("base64")
-      : btoa(pngString);
+  const dataURL = btoa(pngString);
   return "data:image/png;base64," + dataURL;
 }
 
-function getPngArray(pngString: string) {
-  const pngArray = new Uint8Array(pngString.length);
-  for (let i = 0; i < pngString.length; i++) {
-    pngArray[i] = pngString.charCodeAt(i);
-  }
-  return pngArray;
-}
+// function getPngArray(pngString: string) {
+//   const pngArray = new Uint8Array(pngString.length);
+//   for (let i = 0; i < pngString.length; i++) {
+//     pngArray[i] = pngString.charCodeAt(i);
+//   }
+//   return pngArray;
+// }
 
 function generatePng(width: number, height: number, rgbaString: string) {
   const DEFLATE_METHOD = String.fromCharCode(0x78, 0x01);
@@ -71,7 +68,6 @@ function generatePng(width: number, height: number, rgbaString: string) {
     let storeBuffer = "";
     let remaining;
     let blockType;
-    let difference;
 
     for (let i = 0; i < data.length; i += MAX_STORE_LENGTH) {
       remaining = data.length - i;
@@ -83,7 +79,6 @@ function generatePng(width: number, height: number, rgbaString: string) {
         remaining = MAX_STORE_LENGTH;
         blockType = String.fromCharCode(0x00);
       }
-      const lengthBefore = storeBuffer.length;
       // little-endian
       storeBuffer +=
         blockType +
@@ -95,7 +90,6 @@ function generatePng(width: number, height: number, rgbaString: string) {
 
       // If this runs a second time, remaining is max length
       storeBuffer += data.substring(i, i + remaining);
-      difference = storeBuffer.length - lengthBefore;
     }
 
     return storeBuffer;
@@ -180,6 +174,7 @@ function generatePng(width: number, height: number, rgbaString: string) {
       scanline += rgbaString.substr(y, width * 4);
     }
     scanlines += scanline;
+    console.log(scanline.length, width);
   }
 
   const compressedScanlines =

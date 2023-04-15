@@ -1,10 +1,8 @@
 import "./style.css";
-import typescriptLogo from "./typescript.svg";
-import viteLogo from "/vite.svg";
-import { setupCounter } from "./counter";
 import { decode } from "blurhash";
 import { generatePng } from "./blurhashToPng";
 import { blurHashToDataURL } from "./blurhashToDataUrl";
+import { encode } from "fast-png";
 
 // document.querySelector<HTMLDivElement>("#app")!.innerHTML = `
 //   <div>
@@ -31,29 +29,49 @@ const blurhash = "UJJkM=_N4:%M%$-pIT-;%MRjIUIps:f6M{IV";
 //   "width": 1013,
 //   "height": 1350,
 
-const witdh = 1000,
-  height = 1000;
-const performance1 = performance.now();
-const pixels = decode(blurhash, witdh, height);
-const pngBytes = generatePng(witdh, height, pixels);
-
-const performance2 = performance.now();
-console.log("Runtime 1", performance2 - performance1);
-
-const blob = new Blob([pngBytes], { type: "image/png" });
-const objectUrl = URL.createObjectURL(blob);
 const container = document.querySelector<HTMLDivElement>("#app");
 const image = document.createElement("img");
-image.src = objectUrl;
 container?.appendChild(image);
-
-// Other method with strings
 const otherImage = document.createElement("img");
+container?.appendChild(otherImage);
+const otherOtherImage = document.createElement("img");
+container?.appendChild(otherOtherImage);
+
+const witdh = 10,
+  height = 10;
+const pixels = decode(blurhash, witdh, height);
+
+// Homemade
+const performance1 = performance.now();
+const pngBytes = generatePng(witdh, height, pixels);
+const performance2 = performance.now();
+
+console.log("Runtime 1", performance2 - performance1);
+const blob = new Blob([pngBytes], { type: "image/png" });
+const objectUrl = URL.createObjectURL(blob);
+image.src = objectUrl;
+
+const debugAnchor = document.createElement("a");
+debugAnchor.innerText = "Download";
+debugAnchor.download = "";
+debugAnchor.href = objectUrl;
+container?.appendChild(debugAnchor);
+
+// Data URL
 const performance3 = performance.now();
 const dataUrl = blurHashToDataURL(blurhash, witdh, height);
-
 const performance4 = performance.now();
 
 console.log("Runtime 2", performance4 - performance3);
 otherImage.src = dataUrl!;
-container?.appendChild(otherImage);
+
+// Fast PNG library
+
+const performance5 = performance.now();
+const pngBytes2 = encode(new ImageData(pixels, witdh, height));
+const performance6 = performance.now();
+
+console.log("Runtime 3", performance6 - performance5);
+const blob2 = new Blob([pngBytes2], { type: "image/png" });
+const objectUrl2 = URL.createObjectURL(blob2);
+otherOtherImage.src = objectUrl2;

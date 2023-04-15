@@ -1,25 +1,40 @@
 // Source https://gist.github.com/georgexchelebiev/c7f1197509513147a1bc89a56db788ae
-
-import { decode } from "blurhash";
-
-function isBigEndian() {
-  let uInt32 = new Uint32Array([0x11223344]);
-  let uInt8 = new Uint8Array(uInt32.buffer);
-
-  if (uInt8[0] === 0x44) return false;
-  if (uInt8[0] === 0x11) return true;
-  // 🤷
-  throw "Cannot determine endianness";
-}
+//TODO can I write the PNG to a stream and set that as image source so that it starts loading in the DOM immediately because PNG has scan lines that can load in like it would come from a network.
+//TODO accredit fast-png and source above and W3C spec and...something missing?
 const encoder = new TextEncoder();
 
-function getPngArray(pngString: string) {
-  const pngArray = new Uint8Array(pngString.length);
-  for (let i = 0; i < pngString.length; i++) {
-    pngArray[i] = pngString.charCodeAt(i);
+// CRC START ----------
+const crcTable: number[] = [];
+// const crcTable = new Uint8Array(255 * 4);
+// const crcTableView = new DataView(crcTable.buffer);
+
+// Make crc table
+for (let n = 0; n < 256; n++) {
+  let c = n;
+  for (let k = 0; k < 8; k++) {
+    if (c & 1) {
+      c = 0xedb88320 ^ (c >>> 1);
+    } else {
+      c = c >>> 1;
+    }
   }
-  return pngArray;
+  crcTable[n] = c;
 }
+
+function updateCrc(currentCrc: number, data: Uint8Array): number {
+  let c = currentCrc;
+  for (let n = 0; n < data.length; n++) {
+    c = crcTable[(c ^ data[n]) & 0xff] ^ (c >>> 8);
+  }
+  return c;
+}
+
+const initialCrc = 0xffffffff;
+function createCrc(buffer: Uint8Array) {
+  return updateCrc(initialCrc, buffer) ^ initialCrc;
+}
+
+// CRC END ----------
 
 function inflateStore(data: Uint8Array) {
   // IDK if "store" is the right terminology. I based this upon the source code, not a technical document
@@ -37,7 +52,7 @@ function inflateStore(data: Uint8Array) {
   for (let storeIndex = 0; storeIndex < storeCount; storeIndex++) {
     // Start in new storeBuffer
     const startIndexCurrentStore =
-      storeIndex * storeHeaderLength + maxStoreDataLength;
+      storeIndex * (storeHeaderLength + maxStoreDataLength);
     // Remaining bytes in data
     const remainingBytesCount = data.length - startIndexCurrentStore;
     const isLast = remainingBytesCount <= maxStoreDataLength;
@@ -85,30 +100,6 @@ function adler32(data: Uint8Array) {
   return (b << 16) | a;
 }
 
-function updateCrc(crcTable: Uint8Array, crc: number, buffer: Uint8Array) {
-  let c = crc;
-  let b: number;
-
-  for (let n = 0; n < buffer.length; n++) {
-    b = buffer[n];
-    c = crcTable[(c ^ b) & 0xff] ^ (c >>> 8);
-  }
-  return c;
-}
-
-function createCrc(crcTable: Uint8Array, buffer: Uint8Array) {
-  return updateCrc(crcTable, 0xffffffff, buffer) ^ 0xffffffff;
-}
-
-function dwordAsString(dword: number) {
-  return String.fromCharCode(
-    (dword & 0xff000000) >>> 24,
-    (dword & 0x00ff0000) >>> 16,
-    (dword & 0x0000ff00) >>> 8,
-    dword & 0x000000ff
-  );
-}
-
 function dwordAsArray(dword: number) {
   return new Uint8Array([
     (dword & 0xff000000) >>> 24,
@@ -118,14 +109,6 @@ function dwordAsArray(dword: number) {
   ]);
 }
 
-function combine(array1: Uint8Array, array2: Uint8Array) {
-  const mergedArray = new Uint8Array(array1.length + array2.length);
-
-  mergedArray.set(array1);
-  mergedArray.set(array2, array1.length);
-  return mergedArray;
-}
-
 function append(array: Uint8Array, number: number) {
   const newArray = new Uint8Array(array.length + 1);
 
@@ -133,58 +116,66 @@ function append(array: Uint8Array, number: number) {
   newArray[array.length] = number;
   return newArray;
 }
-function createChunk(
-  crcTable: Uint8Array,
-  length: number,
-  type: Uint8Array,
-  data: Uint8Array
-) {
+function combine(array1: Uint8Array, array2: Uint8Array) {
+  const result = new Uint8Array(array1.length + array2.length);
+  result.set(array1);
+  result.set(array2, array1.length);
+  return result;
+}
+function createChunk(length: number, type: Uint8Array, data: Uint8Array) {
   //TODO find a way to not create so many different arrays
-  const buffer = append(type, length);
-  const crc = createCrc(crcTable, buffer);
-  const lengthDword = dwordAsArray(length);
-  const crcDword = dwordAsArray(crc);
+  //   const a = new Uint8Array();
+  const a = type;
+  const crc = createCrc(combine(a, data));
 
-  // return dwordAsString(length) + type + data + dwordAsString(cr);
+  const result = new Uint8Array(8 + data.length + 4);
 
-  const result = new Uint8Array(
-    lengthDword.length + type.length + data.length + crcDword.length
-  );
+  const view = new DataView(result.buffer);
 
-  result.set(lengthDword, 0);
-  result.set(type, lengthDword.length);
-  result.set(data, lengthDword.length + type.length);
-  result.set(crcDword, lengthDword.length + type.length + data.length);
+  //   view.setInt8;
+  // Length 4 bytes
+  view.setUint32(0, length);
+  // Chunk type 4 bytes
+  result.set(type, 4);
+  // Chunk Data
+  result.set(data, 8);
+  view.setUint32(8 + data.length, crc);
+
+  const c = view.getUint32(8 + data.length);
+  console.log("ASD", new TextDecoder().decode(type), c.toString(16));
 
   return result;
 }
 
-function createIHDR(crcTable: Uint8Array, width: number, height: number) {
+function printHex(array: Uint8Array) {
+  console.log("asd", new Uint32Array(array).toString());
+  // array.map(n => n.toString(16).padStart(2, "0")).join("")
+}
+function createIHDR(width: number, height: number) {
+  // https://www.w3.org/TR/2003/REC-PNG-20031110/#11IHDR
   // 13 Bytes length = 4 + 4 + 1 + 1 + 1 + 1 + 1
   const length = 13;
-  const ihdrData = new Uint8Array(length);
+  const ihrData = new Uint8Array(length);
+  const view = new DataView(ihrData.buffer);
+
   //TODO test if endianness is correct
-  ihdrData.set(dwordAsArray(width), 0);
-  ihdrData.set(dwordAsArray(height), 4);
-  ihdrData.set(
-    [
-      // bit depth
-      8,
-      // color type: 6=truecolor with alpha
-      6,
-      // compression method: 0=deflate, only allowed value
-      0,
-      // filtering: 0=adaptive, only allowed value
-      0,
-      // interlacing: 0=none
-      0,
-    ],
-    8
-  );
+  //
+  view.setUint32(0, width);
+  view.setUint32(4, height);
+  // Set bit depth of 8
+  view.setUint8(8, 8);
+  // Set color type to 6 which is truecolor with alpha (RGBA)
+  view.setUint8(9, 6);
+  // Set compression method to 0=deflate, the only allowed value
+  view.setUint8(10, 0);
+  // Set filtering to 0=adaptive, the only allowed value
+  view.setUint8(11, 0);
+  // Set interlacing to 0=none
+  view.setUint8(12, 0);
 
   // UTF-8 == ASCII
   const ihdrTag = encoder.encode("IHDR");
-  return createChunk(crcTable, length, ihdrTag, ihdrData);
+  return createChunk(length, ihdrTag, ihrData);
 }
 /**
  * Generates a PNG blob from the rgbaPixels array (4 bytes --> 1 Pixel RGBA)
@@ -195,65 +186,117 @@ export function generatePng(
   rgbaPixels: Uint8ClampedArray
 ): Uint8Array {
   const DEFLATE_METHOD = [0x78, 0x01];
-  const CRC_TABLE = new Uint8Array(255);
   const SIGNATURE = new Uint8Array([137, 80, 78, 71, 13, 10, 26, 10]);
   const NO_FILTER = 0;
-
-  let n, c, k;
-
-  // make crc table
-  for (n = 0; n < 256; n++) {
-    c = n;
-    for (k = 0; k < 8; k++) {
-      if (c & 1) {
-        c = 0xedb88320 ^ (c >>> 1);
-      } else {
-        c = c >>> 1;
-      }
-    }
-    CRC_TABLE[n] = c;
-  }
 
   // PNG creations
 
   // ASCII == UTF-8
-  const IEND = createChunk(
-    CRC_TABLE,
-    0,
+  const IHDR = createIHDR(width, height);
 
-    encoder.encode("IEND"),
-    new Uint8Array()
-  );
-  const IHDR = createIHDR(CRC_TABLE, width, height);
-
-  // How many bytes is one pixel (RGBA)
+  // How many bytes are one pixel (RGBA)
   const pixelBytesLength = 4;
   const countPixelBytes = width * height * pixelBytesLength;
   //TODO this should be the same as the source array or not?
-  let scanlines = new Uint8Array(countPixelBytes);
+  let scanlines = new Uint8Array(countPixelBytes + height);
+
   let currentScanline;
-
-  // Go through each pixel
-  for (let y = 0; y < rgbaPixels.length; y += width * pixelBytesLength) {
-    // Not sure on width
-    currentScanline = new Uint8Array(width);
+  let rowIndex = 0;
+  // This should not have a remainder because then the width would be wrong
+  const rowCount = rgbaPixels.length / (width * pixelBytesLength);
+  for (let rowIndex = 0; rowIndex < rowCount; rowIndex++) {
+    // If a row is 40 long we prepend 1 byte
+    currentScanline = new Uint8Array(width * pixelBytesLength + 1);
     currentScanline[0] = NO_FILTER;
+    // console.log("New row");
+    // Go through the pixels in the current row
+    for (
+      let byteRowIndex = 0;
+      byteRowIndex < width * pixelBytesLength;
+      byteRowIndex++
+    ) {
+      // Offset of one byte
+      //   const pixelStartIndex = rowIndex + byteIndex + 1;
+      //   const pixelEndIndex = pixelStartIndex + 4;
+      //   const byteStartIndex = pixelStartIndex * pixelBytesLength;
+      //   const byteEndIndex = pixelStartIndex * pixelBytesLength;
 
-    // Here we go through each byte on the x axis but
-    const widthInBytes = width * pixelBytesLength;
-    for (let x = 0; x < widthInBytes; x++) {
-      currentScanline[x + y] = rgbaPixels[y + x] & 0xff;
+      //   console.log(
+      //     rgbaPixels[rowIndex * width + byteRowIndex].toString(16),
+      //     (rgbaPixels[rowIndex * width + byteRowIndex] & 0xff).toString(16)
+      //   );
+      // Each scanlines needs to start at an offset of 1
+      const indexScanlines =
+        rowIndex * width * pixelBytesLength + (byteRowIndex + rowIndex + 1);
+      const pixelsIndex = rowIndex * width * pixelBytesLength + byteRowIndex;
+      //   console.log(indexScanlines, pixelsIndex);
+      scanlines[indexScanlines] = rgbaPixels[pixelsIndex] & 0xff;
+
+      //   currentScanline[rowIndex * width + 1 + byteRowIndex] =
+      //     rgbaPixels[rowIndex * width * pixelBytesLength + byteRowIndex] & 0xff;
+      //   console.log(
+      //     `${rowIndex} * ${width} * ${pixelBytesLength} + ${byteRowIndex} = ${
+      //       rowIndex * width * pixelBytesLength + byteRowIndex
+      //     }`
+      //   );
+      //   console.log(
+      //     `${rowIndex} * ${width} * ${pixelBytesLength} + ${byteRowIndex} + ${rowIndex} + 1 = ${
+      //       rowIndex * width * pixelBytesLength + (byteRowIndex + rowIndex + 1)
+      //     }`
+      //   );
     }
+
+    // console.log(currentScanline);
+    // console.log(
+    //   "Line length",
+    //   currentScanline.length,
+    //   "Offset",
+    //   rowIndex * width * pixelBytesLength + rowIndex,
+    //   "Length after set",
+    //   rowIndex * width * pixelBytesLength + rowIndex + currentScanline.length
+    // );
+
+    // scanlines.set(
+    //   currentScanline,
+    //   rowIndex * width * pixelBytesLength + rowIndex
+    // );
   }
+
+  //   // Go through each pixel
+  //   for (let y = 0; y < rgbaPixels.length; y += width * pixelBytesLength) {
+  //     // Not sure on width
+  //     currentScanline = new Uint8Array(width * pixelBytesLength + 1);
+  //     currentScanline[0] = NO_FILTER;
+  //     let a = [];
+  //     // Here we go through each byte on the x axis but
+  //     const widthInBytes = width * pixelBytesLength;
+  //     for (let x = 0; x < widthInBytes; x++) {
+  //       // One byte offset because of no filter byte
+  //       a.push(x + y + rowIndex + 1);
+  //       currentScanline[x + y + (rowIndex + 1)] = rgbaPixels[y + x] & 0xff;
+  //     }
+  //     console.log(a);
+  //     // console.log("Width", scanlines);
+  //     console.log(
+  //       "start index",
+  //       y + rowIndex + (rowIndex + 1),
+  //       "end index",
+  //       currentScanline.length + y + rowIndex
+  //     );
+  //     scanlines.set(currentScanline, y + rowIndex + 1);
+
+  //     rowIndex++;
+  //   }
+
+  //   console.log("Pixels", rgbaPixels);
+  //   console.log("Scanlines", scanlines);
 
   // Deflate method 2 bytes
   const deflateMethodBytesLength = 2;
   const inflatedStore = inflateStore(scanlines);
   const dword = dwordAsArray(adler32(scanlines));
   const compressedScanlines = new Uint8Array(
-    deflateMethodBytesLength +
-      inflatedStore.length /* * inflateStore.BYTES_PER_ELEMENT */ +
-      dword.length * dword.BYTES_PER_ELEMENT
+    deflateMethodBytesLength + inflatedStore.length + dword.length
   );
 
   //   console.log(
@@ -262,6 +305,7 @@ export function generatePng(
   //       dword.length * dword.BYTES_PER_ELEMENT
   //   );
   // Set deflate method
+
   compressedScanlines.set(DEFLATE_METHOD);
 
   // Set inflated store
@@ -274,13 +318,13 @@ export function generatePng(
   );
 
   const IDAT = createChunk(
-    CRC_TABLE,
     compressedScanlines.length,
     // Should be 73 68 65 84 in decimal
     encoder.encode("IDAT"),
     compressedScanlines
   );
 
+  const IEND = createChunk(0, encoder.encode("IEND"), new Uint8Array());
   // Combine to png binary
   const pngBytes = new Uint8Array(
     SIGNATURE.length + IHDR.length + IDAT.length + IEND.length
