@@ -174,7 +174,6 @@ function generatePng(width: number, height: number, rgbaString: string) {
       scanline += rgbaString.substr(y, width * 4);
     }
     scanlines += scanline;
-    console.log(scanline.length, width);
   }
 
   const compressedScanlines =
