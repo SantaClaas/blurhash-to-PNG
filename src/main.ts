@@ -28,8 +28,6 @@ const blob = new Blob([pngBytes], { type: "image/png" });
 const objectUrl = URL.createObjectURL(blob);
 image.src = objectUrl;
 
-new WritableStream();
-
 const debugAnchor = document.createElement("a");
 debugAnchor.innerText = "Download";
 debugAnchor.download = "My Implementation.png";
