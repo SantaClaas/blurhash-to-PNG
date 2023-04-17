@@ -37,8 +37,8 @@ container?.appendChild(otherImage);
 const otherOtherImage = document.createElement("img");
 container?.appendChild(otherOtherImage);
 
-const witdh = 10,
-  height = 10;
+const witdh = 500,
+  height = witdh;
 const pixels = decode(blurhash, witdh, height);
 
 // Homemade
@@ -64,6 +64,39 @@ const performance4 = performance.now();
 
 console.log("Runtime 2", performance4 - performance3);
 otherImage.src = dataUrl!;
+
+const dataUrlBlob = await fetch(dataUrl!).then((r) => r.blob());
+
+const dataUrlBuffer = new DataView(await dataUrlBlob.arrayBuffer());
+const myBuffer = new DataView(await blob.arrayBuffer());
+// console.log(
+//   "Lengths",
+//   dataUrlBuffer.buffer.byteLength,
+//   myBuffer.buffer.byteLength
+// );
+
+// let count = 0;
+// let previousErrorIndex = 0;
+// for (let index = 0; index < dataUrlBuffer.buffer.byteLength; index++) {
+//   const byteUrl = dataUrlBuffer.getUint8(index);
+//   const byteMy = myBuffer.getUint8(index);
+
+//   if (count > 0 && previousErrorIndex !== index - 1) {
+//     console.log("Skipped a beat");
+//     count += index - previousErrorIndex;
+//   }
+//   if (byteMy === byteUrl) continue;
+
+//   previousErrorIndex = index;
+//   count++;
+//   console.log(
+//     `Error at index ${index} 0x${index.toString(
+//       16
+//     )} expected: 0x${byteUrl.toString(16)}; actual: 0x${byteMy.toString(16)}`
+//   );
+// }
+
+// console.log("Count errors", count);
 
 // Fast PNG library
 

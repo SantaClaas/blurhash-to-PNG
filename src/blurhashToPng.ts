@@ -36,6 +36,40 @@ function createCrc(buffer: Uint8Array) {
 
 // CRC END ----------
 
+function inflateStore2(data: Uint8Array) {
+  const MAX_STORE_LENGTH = 65535;
+  const storeCount = Math.ceil(data.length / MAX_STORE_LENGTH);
+  const length = storeCount * 5 + data.length;
+  let storeBuffer = new Uint8Array(length);
+  let remaining;
+  let blockType;
+  let index = 0;
+  for (let i = 0; i < data.length; i += MAX_STORE_LENGTH) {
+    remaining = data.length - i;
+    blockType = 0;
+
+    if (remaining <= MAX_STORE_LENGTH) {
+      blockType = 0x01;
+    } else {
+      remaining = MAX_STORE_LENGTH;
+      blockType = 0x00;
+    }
+    // little-endian
+
+    storeBuffer[index] = blockType;
+    storeBuffer[index + 1] = remaining & 0xff;
+    storeBuffer[index + 2] = (remaining & 0xff00) >>> 8;
+    storeBuffer[index + 3] = ~remaining & 0xff;
+    storeBuffer[index + 4] = (~remaining & 0xff00) >>> 8;
+
+    const toAdd = data.subarray(i, i + remaining);
+
+    storeBuffer.set(toAdd, index + 5);
+    index += 5 + toAdd.length;
+  }
+
+  return storeBuffer;
+}
 function inflateStore(data: Uint8Array) {
   // IDK if "store" is the right terminology. I based this upon the source code, not a technical document
   const storeHeaderLength = 5;
@@ -45,9 +79,19 @@ function inflateStore(data: Uint8Array) {
 
   // Round up
   const storeCount = Math.ceil(data.length / maxStoreDataLength);
+  console.log(
+    "Store count",
+    data.length / maxStoreDataLength,
+    Math.ceil(data.length / maxStoreDataLength),
+    data.length,
+    maxStoreDataLength
+  );
   // The new length including the headers
   const length = storeCount * storeHeaderLength + data.length;
   let storeBuffer = new Uint8Array(length);
+  const view = new DataView(storeBuffer.buffer);
+
+  console.log("Store buffer length", storeBuffer.length);
 
   for (let storeIndex = 0; storeIndex < storeCount; storeIndex++) {
     // Start in new storeBuffer
@@ -62,23 +106,52 @@ function inflateStore(data: Uint8Array) {
       ? remainingBytesCount
       : maxStoreDataLength;
 
-    // Set store "header"
-    storeBuffer.set(
-      [
-        storeType,
-        currentStoreDataLength & 0xff,
-        (currentStoreDataLength & 0xff00) >>> 8,
-        ~currentStoreDataLength & 0xff,
-        (~currentStoreDataLength & 0xff00) >>> 8,
-      ],
-      startIndexCurrentStore
+    view.setUint8(startIndexCurrentStore, storeType);
+    view.setUint8(startIndexCurrentStore + 1, currentStoreDataLength & 0xff);
+    view.setUint8(
+      startIndexCurrentStore + 2,
+      (currentStoreDataLength & 0xff00) >>> 8
     );
+    view.setUint8(startIndexCurrentStore + 3, ~currentStoreDataLength & 0xff);
+    view.setUint8(
+      startIndexCurrentStore + 4,
+      (~currentStoreDataLength & 0xff00) >>> 8
+    );
+
+    // Set store "header"
+    // storeBuffer.set(
+    //   [
+    //     storeType,
+    //     currentStoreDataLength & 0xff,
+    //     (currentStoreDataLength & 0xff00) >>> 8,
+    //     ~currentStoreDataLength & 0xff,
+    //     (~currentStoreDataLength & 0xff00) >>> 8,
+    //   ],
+    //   startIndexCurrentStore
+    // );
 
     // Set data
     // Put the next chunk of data
     // It is ok if endIndex overshoots and is out of range because JS recognizes that and only goes to the end
     const endIndex = startIndexCurrentStore + currentStoreDataLength;
+    // if isLast
+    if (false) {
+      console.log(
+        "Remaining bytes length",
+        remainingBytesCount,
+        currentStoreDataLength,
+        maxStoreDataLength
+      );
+      let s = "";
+      let i = 0;
+      for (const a of data.subarray(startIndexCurrentStore, endIndex)) {
+        const isEven = i % 4 == 0;
+        s += a.toString(16);
+        if (isEven) s += " ";
+      }
 
+      console.log(s);
+    }
     storeBuffer.set(
       data.subarray(startIndexCurrentStore, endIndex),
       startIndexCurrentStore + storeHeaderLength
@@ -196,104 +269,37 @@ export function generatePng(
 
   // How many bytes are one pixel (RGBA)
   const pixelBytesLength = 4;
-  const countPixelBytes = width * height * pixelBytesLength;
+  // Every row is one byte longer so we add +1 for every row which is height * 1 or just height
+  const scanlinesLength = width * height * pixelBytesLength + height;
   //TODO this should be the same as the source array or not?
-  let scanlines = new Uint8Array(countPixelBytes + height);
+  let scanlines = new Uint8Array(scanlinesLength);
 
-  let currentScanline;
-  let rowIndex = 0;
-  // This should not have a remainder because then the width would be wrong
-  const rowCount = rgbaPixels.length / (width * pixelBytesLength);
-  for (let rowIndex = 0; rowIndex < rowCount; rowIndex++) {
-    // If a row is 40 long we prepend 1 byte
-    currentScanline = new Uint8Array(width * pixelBytesLength + 1);
-    currentScanline[0] = NO_FILTER;
-    // console.log("New row");
-    // Go through the pixels in the current row
-    for (
-      let byteRowIndex = 0;
-      byteRowIndex < width * pixelBytesLength;
-      byteRowIndex++
-    ) {
-      // Offset of one byte
-      //   const pixelStartIndex = rowIndex + byteIndex + 1;
-      //   const pixelEndIndex = pixelStartIndex + 4;
-      //   const byteStartIndex = pixelStartIndex * pixelBytesLength;
-      //   const byteEndIndex = pixelStartIndex * pixelBytesLength;
+  for (
+    let pixelIndex = 0, scanlineIndex = 0;
+    pixelIndex < height * width * pixelBytesLength;
 
-      //   console.log(
-      //     rgbaPixels[rowIndex * width + byteRowIndex].toString(16),
-      //     (rgbaPixels[rowIndex * width + byteRowIndex] & 0xff).toString(16)
-      //   );
-      // Each scanlines needs to start at an offset of 1
-      const indexScanlines =
-        rowIndex * width * pixelBytesLength + (byteRowIndex + rowIndex + 1);
-      const pixelsIndex = rowIndex * width * pixelBytesLength + byteRowIndex;
-      //   console.log(indexScanlines, pixelsIndex);
-      scanlines[indexScanlines] = rgbaPixels[pixelsIndex] & 0xff;
+  ) {
+    const isPixelRowStart = pixelIndex % (width * pixelBytesLength) === 0;
+    const isScanlineRowStart =
+      scanlineIndex % (width * pixelBytesLength + 1) === 0;
 
-      //   currentScanline[rowIndex * width + 1 + byteRowIndex] =
-      //     rgbaPixels[rowIndex * width * pixelBytesLength + byteRowIndex] & 0xff;
-      //   console.log(
-      //     `${rowIndex} * ${width} * ${pixelBytesLength} + ${byteRowIndex} = ${
-      //       rowIndex * width * pixelBytesLength + byteRowIndex
-      //     }`
-      //   );
-      //   console.log(
-      //     `${rowIndex} * ${width} * ${pixelBytesLength} + ${byteRowIndex} + ${rowIndex} + 1 = ${
-      //       rowIndex * width * pixelBytesLength + (byteRowIndex + rowIndex + 1)
-      //     }`
-      //   );
+    // If we completed a pixel row and a scanline row set the first index in the new scanline row to no filter
+    if (isPixelRowStart && isScanlineRowStart) {
+      //TODO simplify this because we don't need to set the first index to its default state if it is already in it
+      scanlines[scanlineIndex] = NO_FILTER;
+      // Advance the scanline index so we can set it from the pixels
+      scanlineIndex++;
+      continue;
     }
 
-    // console.log(currentScanline);
-    // console.log(
-    //   "Line length",
-    //   currentScanline.length,
-    //   "Offset",
-    //   rowIndex * width * pixelBytesLength + rowIndex,
-    //   "Length after set",
-    //   rowIndex * width * pixelBytesLength + rowIndex + currentScanline.length
-    // );
-
-    // scanlines.set(
-    //   currentScanline,
-    //   rowIndex * width * pixelBytesLength + rowIndex
-    // );
+    scanlines[scanlineIndex] = rgbaPixels[pixelIndex] & 0xff;
+    scanlineIndex++;
+    pixelIndex++;
   }
-
-  //   // Go through each pixel
-  //   for (let y = 0; y < rgbaPixels.length; y += width * pixelBytesLength) {
-  //     // Not sure on width
-  //     currentScanline = new Uint8Array(width * pixelBytesLength + 1);
-  //     currentScanline[0] = NO_FILTER;
-  //     let a = [];
-  //     // Here we go through each byte on the x axis but
-  //     const widthInBytes = width * pixelBytesLength;
-  //     for (let x = 0; x < widthInBytes; x++) {
-  //       // One byte offset because of no filter byte
-  //       a.push(x + y + rowIndex + 1);
-  //       currentScanline[x + y + (rowIndex + 1)] = rgbaPixels[y + x] & 0xff;
-  //     }
-  //     console.log(a);
-  //     // console.log("Width", scanlines);
-  //     console.log(
-  //       "start index",
-  //       y + rowIndex + (rowIndex + 1),
-  //       "end index",
-  //       currentScanline.length + y + rowIndex
-  //     );
-  //     scanlines.set(currentScanline, y + rowIndex + 1);
-
-  //     rowIndex++;
-  //   }
-
-  //   console.log("Pixels", rgbaPixels);
-  //   console.log("Scanlines", scanlines);
 
   // Deflate method 2 bytes
   const deflateMethodBytesLength = 2;
-  const inflatedStore = inflateStore(scanlines);
+  const inflatedStore = inflateStore2(scanlines);
   const dword = dwordAsArray(adler32(scanlines));
   const compressedScanlines = new Uint8Array(
     deflateMethodBytesLength + inflatedStore.length + dword.length
