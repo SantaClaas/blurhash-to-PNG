@@ -14,13 +14,15 @@ const otherOtherImage = document.createElement("img");
 otherOtherImage.setAttribute("download", "other other.png");
 container?.appendChild(otherOtherImage);
 
-const witdh = 1000,
+const width = 1000,
   height = 1000;
-const pixels = decode(blurhash, witdh, height);
+const pixels = decode(blurhash, width, height);
+// Pre allocate this and use only this for fairness
+const imageData = new ImageData(pixels, width, height);
 
 // Homemade
 const performance1 = performance.now();
-const pngBytes = generatePng(witdh, height, pixels);
+const pngBytes = generatePng(width, height, pixels);
 const performance2 = performance.now();
 
 console.log("My implementation time", performance2 - performance1);
@@ -36,7 +38,7 @@ container?.appendChild(debugAnchor);
 
 // Data URL
 const performance3 = performance.now();
-const dataUrl = blurHashToDataURL(blurhash, witdh, height);
+const dataUrl = blurHashToDataURL(blurhash, width, height);
 const performance4 = performance.now();
 
 console.log("Blurhash to data URL time", performance4 - performance3);
@@ -47,7 +49,7 @@ const dataUrlBlob = await fetch(dataUrl!).then((r) => r.blob());
 // Fast PNG library
 
 const performance5 = performance.now();
-const pngBytes2 = encode(new ImageData(pixels, witdh, height));
+const pngBytes2 = encode(imageData);
 const performance6 = performance.now();
 
 console.log("fast-png library time", performance6 - performance5);

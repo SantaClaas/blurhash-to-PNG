@@ -79,19 +79,11 @@ function inflateStore(data: Uint8Array) {
 
   // Round up
   const storeCount = Math.ceil(data.length / maxStoreDataLength);
-  console.log(
-    "Store count",
-    data.length / maxStoreDataLength,
-    Math.ceil(data.length / maxStoreDataLength),
-    data.length,
-    maxStoreDataLength
-  );
+
   // The new length including the headers
   const length = storeCount * storeHeaderLength + data.length;
   let storeBuffer = new Uint8Array(length);
   const view = new DataView(storeBuffer.buffer);
-
-  console.log("Store buffer length", storeBuffer.length);
 
   for (let storeIndex = 0; storeIndex < storeCount; storeIndex++) {
     // Start in new storeBuffer
@@ -134,24 +126,7 @@ function inflateStore(data: Uint8Array) {
     // Put the next chunk of data
     // It is ok if endIndex overshoots and is out of range because JS recognizes that and only goes to the end
     const endIndex = startIndexCurrentStore + currentStoreDataLength;
-    // if isLast
-    if (false) {
-      console.log(
-        "Remaining bytes length",
-        remainingBytesCount,
-        currentStoreDataLength,
-        maxStoreDataLength
-      );
-      let s = "";
-      let i = 0;
-      for (const a of data.subarray(startIndexCurrentStore, endIndex)) {
-        const isEven = i % 4 == 0;
-        s += a.toString(16);
-        if (isEven) s += " ";
-      }
 
-      console.log(s);
-    }
     storeBuffer.set(
       data.subarray(startIndexCurrentStore, endIndex),
       startIndexCurrentStore + storeHeaderLength
@@ -213,17 +188,9 @@ function createChunk(length: number, type: Uint8Array, data: Uint8Array) {
   // Chunk Data
   result.set(data, 8);
   view.setUint32(8 + data.length, crc);
-
-  const c = view.getUint32(8 + data.length);
-  console.log("ASD", new TextDecoder().decode(type), c.toString(16));
-
   return result;
 }
 
-function printHex(array: Uint8Array) {
-  console.log("asd", new Uint32Array(array).toString());
-  // array.map(n => n.toString(16).padStart(2, "0")).join("")
-}
 function createIHDR(width: number, height: number) {
   // https://www.w3.org/TR/2003/REC-PNG-20031110/#11IHDR
   // 13 Bytes length = 4 + 4 + 1 + 1 + 1 + 1 + 1
@@ -305,11 +272,6 @@ export function generatePng(
     deflateMethodBytesLength + inflatedStore.length + dword.length
   );
 
-  //   console.log(
-  //     deflateMethodBytesLength +
-  //       inflateStore.length /* * inflateStore.BYTES_PER_ELEMENT */ +
-  //       dword.length * dword.BYTES_PER_ELEMENT
-  //   );
   // Set deflate method
 
   compressedScanlines.set(DEFLATE_METHOD);
