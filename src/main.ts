@@ -21,6 +21,7 @@ const pixels = decode(blurhash, width, height);
 const imageData = new ImageData(pixels, width, height);
 
 // Homemade
+
 const performance1 = performance.now();
 const pngBytes = generatePng(width, height, pixels);
 const performance2 = performance.now();

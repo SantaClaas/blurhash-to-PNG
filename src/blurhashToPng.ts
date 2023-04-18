@@ -1,10 +1,13 @@
 // Source https://gist.github.com/georgexchelebiev/c7f1197509513147a1bc89a56db788ae
 //TODO can I write the PNG to a stream and set that as image source so that it starts loading in the DOM immediately because PNG has scan lines that can load in like it would come from a network.
 //TODO accredit fast-png and source above and W3C spec and...something missing?
+
+// A note on endianess: Based on my limited research almost all processors use little-endian and big endian seems to be excotic
+// PNG uses big endian so we convert that in code
 const encoder = new TextEncoder();
 
 // CRC START ----------
-const crcTable: number[] = [];
+const crcTable = new Array<number>(255);
 // const crcTable = new Uint8Array(255 * 4);
 // const crcTableView = new DataView(crcTable.buffer);
 
@@ -36,14 +39,15 @@ function createCrc(buffer: Uint8Array) {
 
 // CRC END ----------
 
-function inflateStore2(data: Uint8Array) {
+function inflateStore(data: Uint8Array) {
   const MAX_STORE_LENGTH = 65535;
   const storeCount = Math.ceil(data.length / MAX_STORE_LENGTH);
   const length = storeCount * 5 + data.length;
-  let storeBuffer = new Uint8Array(length);
+  const storeBuffer = new Uint8Array(length);
   let remaining;
   let blockType;
   let index = 0;
+  // This code is confusing from the original source and I converted it once
   for (let i = 0; i < data.length; i += MAX_STORE_LENGTH) {
     remaining = data.length - i;
     blockType = 0;
@@ -54,9 +58,9 @@ function inflateStore2(data: Uint8Array) {
       remaining = MAX_STORE_LENGTH;
       blockType = 0x00;
     }
-    // little-endian
 
     storeBuffer[index] = blockType;
+    // Converting little endian to big endian, see notes above
     storeBuffer[index + 1] = remaining & 0xff;
     storeBuffer[index + 2] = (remaining & 0xff00) >>> 8;
     storeBuffer[index + 3] = ~remaining & 0xff;
@@ -70,73 +74,8 @@ function inflateStore2(data: Uint8Array) {
 
   return storeBuffer;
 }
-function inflateStore(data: Uint8Array) {
-  // IDK if "store" is the right terminology. I based this upon the source code, not a technical document
-  const storeHeaderLength = 5;
-  const maxStoreDataLength = 65535;
-  // From my limited understanding, we add 5 bytes to each store of 65535
-  // So we assume the length is
-
-  // Round up
-  const storeCount = Math.ceil(data.length / maxStoreDataLength);
-
-  // The new length including the headers
-  const length = storeCount * storeHeaderLength + data.length;
-  let storeBuffer = new Uint8Array(length);
-  const view = new DataView(storeBuffer.buffer);
-
-  for (let storeIndex = 0; storeIndex < storeCount; storeIndex++) {
-    // Start in new storeBuffer
-    const startIndexCurrentStore =
-      storeIndex * (storeHeaderLength + maxStoreDataLength);
-    // Remaining bytes in data
-    const remainingBytesCount = data.length - startIndexCurrentStore;
-    const isLast = remainingBytesCount <= maxStoreDataLength;
-
-    const storeType = isLast ? 0x01 : 0x00;
-    const currentStoreDataLength = isLast
-      ? remainingBytesCount
-      : maxStoreDataLength;
-
-    view.setUint8(startIndexCurrentStore, storeType);
-    view.setUint8(startIndexCurrentStore + 1, currentStoreDataLength & 0xff);
-    view.setUint8(
-      startIndexCurrentStore + 2,
-      (currentStoreDataLength & 0xff00) >>> 8
-    );
-    view.setUint8(startIndexCurrentStore + 3, ~currentStoreDataLength & 0xff);
-    view.setUint8(
-      startIndexCurrentStore + 4,
-      (~currentStoreDataLength & 0xff00) >>> 8
-    );
-
-    // Set store "header"
-    // storeBuffer.set(
-    //   [
-    //     storeType,
-    //     currentStoreDataLength & 0xff,
-    //     (currentStoreDataLength & 0xff00) >>> 8,
-    //     ~currentStoreDataLength & 0xff,
-    //     (~currentStoreDataLength & 0xff00) >>> 8,
-    //   ],
-    //   startIndexCurrentStore
-    // );
-
-    // Set data
-    // Put the next chunk of data
-    // It is ok if endIndex overshoots and is out of range because JS recognizes that and only goes to the end
-    const endIndex = startIndexCurrentStore + currentStoreDataLength;
-
-    storeBuffer.set(
-      data.subarray(startIndexCurrentStore, endIndex),
-      startIndexCurrentStore + storeHeaderLength
-    );
-  }
-
-  return storeBuffer;
-}
 function adler32(data: Uint8Array) {
-  let MOD_ADLER = 65521;
+  const MOD_ADLER = 65521;
   let a = 1;
   let b = 0;
 
@@ -148,39 +87,29 @@ function adler32(data: Uint8Array) {
   return (b << 16) | a;
 }
 
-function dwordAsArray(dword: number) {
-  return new Uint8Array([
-    (dword & 0xff000000) >>> 24,
-    (dword & 0x00ff0000) >>> 16,
-    (dword & 0x0000ff00) >>> 8,
-    dword & 0x000000ff,
-  ]);
+function setUint32(target: Uint8Array, value: number, offset: number) {
+  // Converting little endian to big endian, see notes above
+  target[offset] = (value & 0xff000000) >>> 24;
+  target[offset + 1] = (value & 0x00ff0000) >>> 16;
+  target[offset + 2] = (value & 0x0000ff00) >>> 8;
+  target[offset + 3] = value & 0x000000ff;
 }
 
-function append(array: Uint8Array, number: number) {
-  const newArray = new Uint8Array(array.length + 1);
-
-  newArray.set(array);
-  newArray[array.length] = number;
-  return newArray;
-}
 function combine(array1: Uint8Array, array2: Uint8Array) {
   const result = new Uint8Array(array1.length + array2.length);
   result.set(array1);
   result.set(array2, array1.length);
   return result;
 }
+
 function createChunk(length: number, type: Uint8Array, data: Uint8Array) {
   //TODO find a way to not create so many different arrays
-  //   const a = new Uint8Array();
-  const a = type;
-  const crc = createCrc(combine(a, data));
+  const crc = createCrc(combine(type, data));
 
   const result = new Uint8Array(8 + data.length + 4);
 
   const view = new DataView(result.buffer);
 
-  //   view.setInt8;
   // Length 4 bytes
   view.setUint32(0, length);
   // Chunk type 4 bytes
@@ -266,12 +195,11 @@ export function generatePng(
 
   // Deflate method 2 bytes
   const deflateMethodBytesLength = 2;
-  const inflatedStore = inflateStore2(scanlines);
-  const dword = dwordAsArray(adler32(scanlines));
+  const inflatedStore = inflateStore(scanlines);
+  const dword = adler32(scanlines);
   const compressedScanlines = new Uint8Array(
-    deflateMethodBytesLength + inflatedStore.length + dword.length
+    deflateMethodBytesLength + inflatedStore.length + 4
   );
-
   // Set deflate method
 
   compressedScanlines.set(DEFLATE_METHOD);
@@ -279,8 +207,8 @@ export function generatePng(
   // Set inflated store
   compressedScanlines.set(inflatedStore, deflateMethodBytesLength);
 
-  // Set dword
-  compressedScanlines.set(
+  setUint32(
+    compressedScanlines,
     dword,
     deflateMethodBytesLength + inflatedStore.length
   );
