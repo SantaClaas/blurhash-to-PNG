@@ -1,15 +1,9 @@
 // Source https://gist.github.com/georgexchelebiev/c7f1197509513147a1bc89a56db788ae
-//TODO can I write the PNG to a stream and set that as image source so that it starts loading in the DOM immediately because PNG has scan lines that can load in like it would come from a network.
-//TODO accredit fast-png and source above and W3C spec and...something missing?
 
 // A note on endianess: Based on my limited research almost all processors use little-endian and big endian seems to be excotic
 // PNG uses big endian so we convert that in code
-const encoder = new TextEncoder();
-
 // CRC START ----------
 const crcTable = new Array<number>(255);
-// const crcTable = new Uint8Array(255 * 4);
-// const crcTableView = new DataView(crcTable.buffer);
 
 // Make crc table
 for (let n = 0; n < 256; n++) {
@@ -108,15 +102,13 @@ function createChunk(length: number, type: Uint8Array, data: Uint8Array) {
 
   const result = new Uint8Array(8 + data.length + 4);
 
-  const view = new DataView(result.buffer);
-
   // Length 4 bytes
-  view.setUint32(0, length);
+  setUint32(result, length, 0);
   // Chunk type 4 bytes
   result.set(type, 4);
   // Chunk Data
   result.set(data, 8);
-  view.setUint32(8 + data.length, crc);
+  setUint32(result, crc, 8 + data.length);
   return result;
 }
 
@@ -125,25 +117,23 @@ function createIHDR(width: number, height: number) {
   // 13 Bytes length = 4 + 4 + 1 + 1 + 1 + 1 + 1
   const length = 13;
   const ihrData = new Uint8Array(length);
-  const view = new DataView(ihrData.buffer);
 
-  //TODO test if endianness is correct
-  //
-  view.setUint32(0, width);
-  view.setUint32(4, height);
+  setUint32(ihrData, width, 0);
+  setUint32(ihrData, height, 4);
   // Set bit depth of 8
-  view.setUint8(8, 8);
+  ihrData[8] = 8;
   // Set color type to 6 which is truecolor with alpha (RGBA)
-  view.setUint8(9, 6);
+  ihrData[9] = 6;
+  // Commented out lines below because they don't change anything
   // Set compression method to 0=deflate, the only allowed value
-  view.setUint8(10, 0);
+  // ihrData[10] = 0;
   // Set filtering to 0=adaptive, the only allowed value
-  view.setUint8(11, 0);
+  // ihrData[11] = 0;
   // Set interlacing to 0=none
-  view.setUint8(12, 0);
+  // ihrData[12] = 0;
 
-  // UTF-8 == ASCII
-  const ihdrTag = encoder.encode("IHDR");
+  // Binary of "IHDR"
+  const ihdrTag = new Uint8Array([0x49, 0x48, 0x44, 0x52]);
   return createChunk(length, ihdrTag, ihrData);
 }
 /**
@@ -213,14 +203,18 @@ export function generatePng(
     deflateMethodBytesLength + inflatedStore.length
   );
 
+  // Binary of "IDAT"
+  const idatType = new Uint8Array([0x49, 0x44, 0x41, 0x54]);
   const IDAT = createChunk(
     compressedScanlines.length,
     // Should be 73 68 65 84 in decimal
-    encoder.encode("IDAT"),
+    idatType,
     compressedScanlines
   );
 
-  const IEND = createChunk(0, encoder.encode("IEND"), new Uint8Array());
+  // Binary of "IEND"
+  const iendType = new Uint8Array([0x49, 0x45, 0x4e, 0x44]);
+  const IEND = createChunk(0, iendType, new Uint8Array());
   // Combine to png binary
   const pngBytes = new Uint8Array(
     SIGNATURE.length + IHDR.length + IDAT.length + IEND.length
